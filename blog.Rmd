@@ -1,0 +1,120 @@
+---
+title: "Stata to R"
+author: "Max Zhang"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Statamarkdown)
+```
+
+```{stata, collectcode=TRUE}
+sysuse auto
+summarize
+```
+
+# Motivation
+
+..........
+
+
+# Overview of UI-Project
+
+..............
+
+
+# Translation Examples
+
+**proof of concepts!** final examples will probably be modified
+
+## Variables in Tables
+
+In Stata, `generate` and `replace` are often used to create variables and then modify them based on logical conditions. R's **dplyr** has the analog versions of `mutate()` and `if_else()`, but with somewhat differing functionality. `mutate()` is used in both generation and modification of new and existing variables. `if_else()` is **dplyr**'s version of base R's `ifelse()`, which is a vectorized version of a typical if-else statement that allows you to replace values along an entire vector based on a logical condition.
+
+**dplyr** has an additional function, `case_when()`, that allows you to combine multiple `if_else()` statements into one. `case_when()` is particularly useful when you wish to replace many different values and/or when you have many different conditions to replace on.
+
+```{stata, echo=FALSE}
+* use lines 58-71 in 22.do
+```
+
+.........
+
+
+```{r}
+# translation of above in 22.R
+```
+
+...........
+
+
+## Macros
+
+Stata's macros resemble objects in R, and can be used to directly store values or store them indirectly as expressions, or be used to refer to variables, i.e. columns in the loaded table. Both of these functions can be replicated easily in R while using **dplyr**, but the syntax is more awkward.
+
+```{stata, echo=FALSE}
+* replacement rate
+global UI_rate rate
+
+
+* generate replacement rate
+gen rate_UCf = ${UI_rate}
+```
+
+In this Stata code, the variable/column `rate` is assigned to the global macro `UI_rate`. Since an `=` is used in the assignment, no evaluation of the expression is performed. Later on, this macro is accessed with the `${...}` syntax, and we generate a new variable `rate_UCf`, which is simply a copy of `rate`.
+
+```{r, echo=FALSE}
+# replacement rate
+UI_rate <- 'rate'
+
+# generate replacement rate
+cps <- cps %>% 
+  mutate(rate_UCf = .data[[UI_rate]])
+```
+
+In this R code, we first assign a length one character vector `'rate'` to `UI_rate`. Later, when we wish to access the `rate` column in our dataset (which is `cps`), we use the `.data` pronoun to indicate we wish to access the dataset and subsequently its variables/columns. The double bracket notation `[[...]]` is base R for selecting columns from data frames, and it is used over `$...` notation since our variable `UI_rate` is of type character, and the double brackets handle that best.
+
+
+## Dynamic Names
+
+Dynamic naming can show up in two different ways in Stata: either in for loops, or when using macros (is this true at all??). For the first case, base R functions like `assign()` and `get()` are useful for generating and referring to objects, say, subsets of tables. For the second case, which might be used when performing calculations on columns, the package **glue** in combination with **dplyr** is quite useful.
+
+### First way
+
+.........................
+
+
+### Second way
+
+We repeat the example in section *Macros*, but with dynamic naming that represents different specifications of a simulation.
+
+```{stata, echo=FALSE}
+* define simulation specification
+global i = 0
+
+* replacement rate
+global UI_rate rate
+
+
+* generate replacement rate
+gen rate_UCf{i} = ${UI_rate}
+```
+
+Here, we define the macro `i` which is assigned the evaluation of the expression `0`, which is itself. We define `UI_rate` again, and then dynamically name our new rate variable with the `{...}` notation, ultimately appending `0` to `rate_UCf`.
+
+```{r, echo=FALSE}
+# define simulation specification
+i <- 0
+
+# replacement rate
+UI_rate <- 'rate'
+
+# generate replacement rate
+cps <- cps %>% 
+  mutate('rate_UCf{i}' := .data[[UI_rate]])
+```
+
+Two key changes are made here. First, we utilize **glue** to dynamically name our new rate variable by enclosing its name in quotes (mention that single or double are fine) and, just like in Stata, using the `{...}` notation to append the value of `i` to `rate_UCf`. Second, we must use the walrus operator `:=` instead of the typical equals sign assignment operator `=`. Any time you use this **glue** syntax to assign a new variable dynamically, i.e. you have **glue** syntax on the left-hand side, you must use this walrus operator. If you get errors, check for this first---it's easy to forget!
