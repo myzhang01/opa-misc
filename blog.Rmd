@@ -1,21 +1,15 @@
 ---
-title: "Stata to R"
-author: "Max Zhang"
+title: 'Translating Stata to R: A Case Study'
+author: 'Max Zhang'
+date: 'Aug. 2022'
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-```
-
-```{r}
 library(Statamarkdown)
 ```
 
-```{stata, collectcode=TRUE}
-sysuse auto
-summarize
-```
 
 # Motivation
 
@@ -29,33 +23,68 @@ summarize
 
 # Translation Examples
 
-**proof of concepts!** final examples will probably be modified
+**proofs of concept!** final examples will probably be modified
 
-## Variables in Tables
+## Generating and Replacing Variables
 
 In Stata, `generate` and `replace` are often used to create variables and then modify them based on logical conditions. R's **dplyr** has the analog versions of `mutate()` and `if_else()`, but with somewhat differing functionality. `mutate()` is used in both generation and modification of new and existing variables. `if_else()` is **dplyr**'s version of base R's `ifelse()`, which is a vectorized version of a typical if-else statement that allows you to replace values along an entire vector based on a logical condition.
 
 **dplyr** has an additional function, `case_when()`, that allows you to combine multiple `if_else()` statements into one. `case_when()` is particularly useful when you wish to replace many different values and/or when you have many different conditions to replace on.
 
-```{stata, echo=FALSE}
-* use lines 58-71 in 22.do
+Here, we use an example from `01_cleaning.do`, where we generate a new variable `age_group_ha` based on the variable `age` from our ACS extract:
+
+```{stata, eval=FALSE}
+// Generate harmonized grouped age var (age_group_ha)
+gen 	age_group_ha = .
+replace age_group_ha = 1 if inrange(age, 0, 17)
+replace age_group_ha = 2 if inrange(age, 18, 24)
+replace age_group_ha = 3 if inrange(age, 25, 34)
+replace age_group_ha = 4 if inrange(age, 35, 44)
+replace age_group_ha = 5 if inrange(age, 45, 54)
+replace age_group_ha = 6 if inrange(age, 55, 64)
+replace age_group_ha = 7 if inrange(age, 65, 80)
 ```
 
-.........
+To translate this into R, we'll first demonstrate using **dplyr**'s mutate() and if_else():
 
-
-```{r}
-# translation of above in 22.R
+```{r, eval=FALSE}
+# Generate harmonized grouped age var (age_group_ha)
+acs <- acs %>% 
+  mutate(age_group_ha = NA_real_,
+         age_group_ha = if_else(between(age, 0,  17), 1, age_group_ha),
+         age_group_ha = if_else(between(age, 18, 24), 1, age_group_ha),
+         age_group_ha = if_else(between(age, 25, 34), 1, age_group_ha),
+         age_group_ha = if_else(between(age, 35, 44), 1, age_group_ha),
+         age_group_ha = if_else(between(age, 45, 54), 1, age_group_ha),
+         age_group_ha = if_else(between(age, 55, 64), 1, age_group_ha),
+         age_group_ha = if_else(between(age, 65, 80), 1, age_group_ha))
 ```
 
-...........
+This is a verbatim translation of the original Stata. If we'd like to avoid repetition and make our code somewhat easier to read, we can use the `case_when()` function instead:
+
+```{r, eval=FALSE}
+# Generate harmonized grouped age var (age_group_ha)
+acs <- acs %>% 
+  mutate(age_group_ha = case_when(between(age, 0,  17) ~ 1,
+                                  between(age, 18, 24) ~ 2,
+                                  between(age, 25, 34) ~ 3,
+                                  between(age, 35, 44) ~ 4,
+                                  between(age, 45, 54) ~ 5,
+                                  between(age, 55, 64) ~ 6,
+                                  between(age, 65, 80) ~ 7))
+```
+
+`case_when()` makes our code more compact by combining our seven calls to `if_else()` into just one function call, and by implicitly handling our output for 'else'. In this case, any values that do not satisfy the specified conditions get set to `NA_real_`, the missing value that has the same type of 'if' outputs, i.e. the doubles `1`, `2`, `3`, `4`, `5`, `6`, and `7`. You can explicitly handle the output for else by adding a final line, `TRUE ~ ...`, where `...` is the value you desire. We accepted `case_when()`
+s default value of the type-appropriate `NA` because that matches the original Stata version.
+
+Note one trade-off with using `case_when()` is that a value is assigned based on the first condition it satisfies, and cannot be changed later. This requires you to be precise with your logical conditions and order them from most general to most specific---this is why when explicitly handling the 'else' output `TRUE ~ ...` must be the final line, as every value (that isn't `NA`) satisfies this condition. If your conditions are non-overlapping, then this problem is avoided. Otherwise, be careful when reasoning about the original Stata code.
 
 
 ## Macros
 
 Stata's macros resemble objects in R, and can be used to directly store values or store them indirectly as expressions, or be used to refer to variables, i.e. columns in the loaded table. Both of these functions can be replicated easily in R while using **dplyr**, but the syntax is more awkward.
 
-```{stata, echo=FALSE}
+```{stata, eval=FALSE}
 * replacement rate
 global UI_rate rate
 
@@ -66,7 +95,7 @@ gen rate_UCf = ${UI_rate}
 
 In this Stata code, the variable/column `rate` is assigned to the global macro `UI_rate`. Since an `=` is used in the assignment, no evaluation of the expression is performed. Later on, this macro is accessed with the `${...}` syntax, and we generate a new variable `rate_UCf`, which is simply a copy of `rate`.
 
-```{r, echo=FALSE}
+```{r, eval=FALSE}
 # replacement rate
 UI_rate <- 'rate'
 
@@ -91,7 +120,7 @@ Dynamic naming can show up in two different ways in Stata: either in for loops, 
 
 We repeat the example in section *Macros*, but with dynamic naming that represents different specifications of a simulation.
 
-```{stata, echo=FALSE}
+```{stata, eval=FALSE}
 * define simulation specification
 global i = 0
 
@@ -105,7 +134,7 @@ gen rate_UCf{i} = ${UI_rate}
 
 Here, we define the macro `i` which is assigned the evaluation of the expression `0`, which is itself. We define `UI_rate` again, and then dynamically name our new rate variable with the `{...}` notation, ultimately appending `0` to `rate_UCf`.
 
-```{r, echo=FALSE}
+```{r, eval=FALSE}
 # define simulation specification
 i <- 0
 
@@ -118,3 +147,54 @@ cps <- cps %>%
 ```
 
 Two key changes are made here. First, we utilize **glue** to dynamically name our new rate variable by enclosing its name in quotes (mention that single or double are fine) and, just like in Stata, using the `{...}` notation to append the value of `i` to `rate_UCf`. Second, we must use the walrus operator `:=` instead of the typical equals sign assignment operator `=`. Any time you use this **glue** syntax to assign a new variable dynamically, i.e. you have **glue** syntax on the left-hand side, you must use this walrus operator. If you get errors, check for this first---it's easy to forget!
+
+There may be situations where you name a variable dynamically, and then you wish to use that variable in calculations later. Here is an example from `22_calc-monetary-eligibility-generosity.do`:
+
+```{stata, eval=FALSE}
+* wage concept
+global UI_wage_concept wage_concept
+
+* wage concept for base period earnings
+gen		wage_concept${i} = ${UI_wage_concept}
+
+// Earnings for wba calculation (based on each state's wage/earnings concept)
+gen 	earnings_wba_UCf${i} = 0
+* based on annual wage (all earnings in base period)
+replace earnings_wba_UCf${i} = earnings_bp if wage_concept${i} == "annual_wage"
+```
+
+We first generate our wage concept variable based on the original `wage_concept`. We then modify our earnings variable based on the value of the new wage concept variable. If we want to translate this to R, we will have to use `glue()` function from **glue**, in combination with the other techniques we've covered:
+
+```{r}
+# wage concept
+UI_wage_concept <- 'wage_concept'
+
+# wage concept for base period earnings
+cps <- cps %>% 
+  mutate('wage_concept{i}' := .data[[UI_wage_concept]],
+         
+         # Earnings for wba calculation (based on each state's wage/earnings concept)
+         'earnings_wba_UCf{i}' := 0,
+         'earnings_wba_UCf{i}' := if_else(.data[[glue('wage_concept{i}')]] == 'annual_wage',
+                                          true = earnings_bp, 
+                                          false = .data[[glue('earnings_wba_UCf{i}')]]))
+```
+
+To get R to understand that we want to access the dynamically named `wage_concept0` variable, we use `glue()` to create a string that ultimately get evaluated in such a way that `mutate()` recognizes it as a column. Then we replace the values of `earnings_wba_UCf0` where `wage_concept0` equals `'annual_wage'` with the corresponding values of the `earnings_bp` column. All other values remain untouched by putting the dynamically named `earnings_wba_UCf0` column in the `false` argument.
+
+Using these methods, **glue** in combination with **dplyr** give you essentially complete freedom to dynamically define and utilize variables in your data frame. Subsequently, you will be able to translate essentially any use of macros in variable generation/replacement in your original Stata script, with the tradeoff your translation will be somewhat bulkier and more complex than the original.
+
+
+## Merges
+
+Stata's joins are known as merges. In R, **dplyr** handles joins with a handful of functions, namely `left_join()`, `right_join()`, `inner_join()`, and `full_join()`. These correspond (roughly?) to `1:m`, `m:1`, `1:1`, and `m:m` merges in Stata.
+
+
+
+
+## Logistic Regression
+
+used for inverse propensity score matching
+
+reference 04_test and urap weekly summary
+
